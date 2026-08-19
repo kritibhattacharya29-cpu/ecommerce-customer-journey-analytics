@@ -214,15 +214,19 @@ def search_influence(con, rep: Report) -> None:
 
         **This is a correlation, not a lever.** Shoppers who search are already
         further along in intent — searching is a symptom of wanting something
-        specific, not a cause of buying it. The actionable comparison is the
-        third row: among sessions that *did* search, those hitting a
-        zero-result page convert at {czr:.2f}% against {cs:.2f}% overall. That
-        contrast holds intent roughly constant and isolates a genuine product
-        failure, which the first two rows cannot.
+        specific, not a cause of buying it. Pushing more shoppers into the
+        search box would not move the first two rows toward each other.
+
+        The third row was intended as the controlled comparison, holding intent
+        roughly constant by looking only within searching sessions. It returns
+        **{czr:.2f}% against {cs:.2f}%** — no difference. Whatever a failed
+        search costs, it is not visible at session grain. That null result is
+        examined in `search_analysis.md` §4, which sets out why the session is
+        the wrong unit of analysis for this question.
     """))
     if czr and cs:
-        rep.finding("note", f"Sessions hitting a zero-result search convert at {czr:.2f}% vs "
-                            f"{cs:.2f}% for searching sessions overall.")
+        rep.finding("note", f"Zero-result searches show no session-level conversion penalty "
+                            f"({czr:.2f}% vs {cs:.2f}% overall) — see search_analysis.md §4.")
 
 
 def weekly_pattern(con, rep: Report) -> None:

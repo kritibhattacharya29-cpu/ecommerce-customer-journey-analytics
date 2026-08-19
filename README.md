@@ -89,10 +89,57 @@ for the ML layer, keeping every analytical scan cheap.
 | Layer | What it does | Status |
 |---|---|---|
 | **1 — Data engineering** | Raw ingest, data-quality assessment, session reconstruction, dimensional model | ✅ |
-| **2 — Customer journey** | Funnel conversion, cart abandonment, session depth, time-to-purchase | 🚧 |
-| **3 — Search analytics** | Query → impression → click → purchase conversion, zero-result searches | 🚧 |
-| **4 — Product & commercial** | Category performance, price-bucket sensitivity, product affinity | 🚧 |
+| **2 — Customer journey** | Funnel (both definitions), cart abandonment, session depth, time-to-purchase | ✅ [report](reports/funnel_analysis.md) |
+| **3 — Search analytics** | Zero-result rate, CTR, position bias, click → purchase attribution | ✅ [report](reports/search_analysis.md) |
+| **4 — Product & commercial** | Category performance, price-bucket sensitivity, product affinity | 🚧 `fct_product_performance` built |
 | **5 — Data science** | Purchase-intent classification, session-based recommendation | 🚧 |
+
+---
+
+## Selected results
+
+**The funnel, both ways** — over 4,934,699 sessions:
+
+| Stage | Step-attained | Strict-sequence |
+|---|---|---|
+| Session | 4,934,699 (100%) | 4,934,699 (100%) |
+| Product detail | 3,260,353 (66.07%) | 3,260,353 (66.07%) |
+| Add to cart | 214,684 (4.35%) | 194,882 (3.95%) |
+| Purchase | **53,209 (1.08%)** | **40,291 (0.82%)** |
+
+The two definitions disagree on **12,918 purchasing sessions — 24.3% of all
+conversions**. A textbook sequential funnel would report 0.82% and quietly omit
+a quarter of the revenue.
+
+Cart abandonment is **78.5%**, reported explicitly as an *upper bound*: 7,071 of
+those "abandoned" carts were purchased in a later session, under a different
+session ID.
+
+**A null result worth more than a positive one.** 26.5% of searches return zero
+results, which looks like an obvious revenue leak. Tested directly, it isn't —
+sessions hitting a zero-result page convert at 3.57% against 3.56% for those
+that never do. A **+0.00 pp** difference across 145,065 sessions.
+[`search_analysis.md` §4](reports/search_analysis.md) works through why the
+session is the wrong unit of analysis for the question, and what would actually
+answer it. Reporting the 26.5% as lost revenue would have been the easy,
+confident, wrong answer.
+
+**Position bias.** 21.7% of search clicks land on result #1 and 44.3% in the top
+three — recoverable only because Coveo log the full impression set. Any
+relevance model trained on raw clicks would mostly learn to reproduce the
+existing ranker.
+
+**Row-count reconciliation.** `python -m src.transform.reconcile` proves every
+dropped row is accounted for:
+
+```
+raw_browsing                               36,079,307
+- NULL session or timestamp                         0
+- redundant duplicate copies                   -1,800
+- PDP pageviews paired with detail         -9,707,556
+= expected stg_browsing                    26,369,951
+  actual stg_browsing                      26,369,951   RECONCILED exactly
+```
 
 ---
 
@@ -138,7 +185,42 @@ python -m src.ingest.build_duckdb
 python -m src.profiling.data_quality
 ```
 
+```bash
+python -m src.transform.build_model
+```
+
+```bash
+python -m src.transform.reconcile
+```
+
+```bash
+python -m src.analysis.funnel && python -m src.analysis.search
+```
+
 Add `--with-vectors` to the ingest only when working on the ML layer.
+
+Verify the pipeline without the dataset — the tests run entirely on synthetic
+fixtures:
+
+```bash
+python tests/test_pipeline.py
+```
+
+### Runtime and resources
+
+Measured on a 4-core / 7.8 GB laptop:
+
+| Step | Time | Notes |
+|---|---|---|
+| Ingest (all three CSVs) | 115 s | 7.8 GB CSV → 1.9 GB warehouse |
+| Data-quality assessment | ~130 s | full 36M events |
+| `build_model` | 737 s | `stg_browsing` alone is 609 s |
+| Analyses | < 10 s | reads the marts |
+
+`stg_browsing` needs two sorts of ~7 GB with a 2 GB memory budget, peaking near
+12 GB of spill. On a machine with more RAM it is far quicker.
+[`docs/architecture.md` §7](docs/architecture.md) explains the memory-limit
+choice and the surrogate-key optimisation that would remove the bottleneck.
 
 ---
 
