@@ -1,6 +1,6 @@
 # Search Analytics — Coveo SIGIR 2021 eCommerce Dataset
 
-Generated 2026-08-19 10:39 UTC from 819,516 events across 550,100 sessions.
+Generated 2026-08-19 12:05 UTC from 819,516 events across 550,100 sessions.
 
 > Dataset © Coveo Solutions Inc., released for the SIGIR 2021 eCom Data
 > Challenge and used here under their research/educational Terms &
@@ -68,6 +68,8 @@ because Coveo logged the full impression set, not just the click.
 | 6-10 | 68,276 | 19.02 |
 | 11-20 | 67,003 | 18.66 |
 | 21+ | 18,336 | 5.11 |
+
+![Position bias](figures/position_bias.png)
 
 Median clicked position: **4**; 90th percentile:
 17.

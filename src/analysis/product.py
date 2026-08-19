@@ -88,6 +88,8 @@ def catalog_coverage(con, rep: Report) -> None:
         | Product views on priced SKUs | {price_views:,} | {pct(price_views, all_views):.2f}% |
         | Purchases on priced SKUs | {price_purch:,} | **{pct(price_purch, all_purch):.2f}%** |
 
+        ![Catalog coverage cross-tab](figures/catalog_coverage.png)
+
         ### The missingness has a structure
 
         Crossing "has a category" against "was ever viewed" shows the two are
@@ -274,6 +276,8 @@ def funnel_shape(con, rep: Report) -> None:
         | Top 1% | {conc[0]:.1f}% |
         | Top 10% | {conc[1]:.1f}% |
         | Top 20% | {conc[2]:.1f}% |
+
+        ![Demand concentration](figures/demand_concentration.png)
 
         This is the classic long tail, and it constrains the recommendation work
         in Layer 5 directly. With demand this concentrated, a recommender that

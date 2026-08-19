@@ -53,6 +53,8 @@ def funnel_overview(con, rep: Report) -> None:
 
         {tbl}
 
+        ![Funnel, both definitions](figures/funnel.png)
+
         **Step-attained** asks *did the session ever reach this stage?*
         **Strict-sequence** asks *did the stages happen in canonical order?*
 
@@ -165,6 +167,8 @@ def session_depth(con, rep: Report) -> None:
         ## 3. Session depth and time-to-purchase
 
         {md_table(["Events in session", "Sessions", "Conversion %", "Median duration (s)"], rows)}
+
+        ![Session depth vs conversion](figures/session_depth.png)
 
         Timing milestones (medians, on the 30-minute-capped duration):
 

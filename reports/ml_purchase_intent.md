@@ -1,6 +1,6 @@
 # Purchase-Intent Prediction — Coveo SIGIR 2021 eCommerce Dataset
 
-Generated 2026-08-19 11:53 UTC from 214,684 cart sessions, 46,075 converting (21.46%).
+Generated 2026-08-19 12:05 UTC from 214,684 cart sessions, 46,075 converting (21.46%).
 
 > Dataset © Coveo Solutions Inc., released for the SIGIR 2021 eCom Data
 > Challenge and used here under their research/educational Terms &
@@ -51,26 +51,41 @@ temporal problem, and the gap is not always small.
 
 | Model | ROC-AUC | PR-AUC | PR-AUC / base | Brier | Precision@10% | Lift@10% |
 |---|---|---|---|---|---|---|
-| Baseline (predict base rate) | 0.5000 | 0.1989 | 1.00x | 0.1596 | 0.210 | 1.06x |
+| Baseline (constant prediction) | 0.5000 | 0.1989 | 1.00x | 0.1596 | 0.210 | 1.06x |
 | Logistic regression | 0.6210 | 0.2825 | 1.42x | 0.2358 | 0.336 | 1.69x |
 | Gradient boosting | 0.6568 | 0.3134 | 1.58x | 0.1517 | 0.381 | 1.92x |
 
+**A note on which base rate.** The population converts at
+21.46%, but the *test period* — the latest 20% of carts — converts
+at **19.89%**. Every metric above is computed against the test
+base rate, since that is the population the model is scored on.
+
+The gap is not a bug; it is temporal drift, and it is visible only
+because the split respects time. A random split would have averaged the
+two periods together and hidden it. Cart conversion declined over the
+89-day window, which is itself worth knowing: a model trained on early
+behaviour is scoring a slightly different world, and that is exactly the
+condition a deployed model lives in.
+
 ROC-AUC is reported because it is expected, but **PR-AUC against the
-base rate is the number that matters here**. With a 21.5% positive
-class, a model can post a respectable-looking ROC-AUC while being
-useless at the top of the ranking, which is the only region anyone acts
-on.
+base rate is the number that matters here**. With a 19.9%
+positive class, a model can post a respectable-looking ROC-AUC while
+being useless at the top of the ranking, which is the only region anyone
+acts on.
 
 Best model: **Gradient boosting**, PR-AUC 0.3134 against a
-base rate of 0.2146 — **1.58× better than chance**.
+base rate of 0.1989 — **1.58× better than
+chance**.
 
 ### What this is worth operationally
 
 Targeting the **top 10%** of carts by predicted abandonment risk reaches
-a group converting at 38.1% against 21.5%
+a group converting at 38.1% against 19.9%
 overall — a **1.92× lift**. For a retention
 intervention with a real per-contact cost, that ratio, not the AUC, is
 what decides whether the model pays for itself.
+
+![Leakage and precision-recall](figures/ml_leakage.png)
 
 ## 3. The model is weak, and that is the finding
 

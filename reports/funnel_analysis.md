@@ -1,6 +1,6 @@
 # Customer Journey & Funnel Analysis — Coveo SIGIR 2021 eCommerce Dataset
 
-Generated 2026-08-19 10:39 UTC from 26,369,951 events across 4,934,699 sessions.
+Generated 2026-08-19 12:05 UTC from 26,369,951 events across 4,934,699 sessions.
 
 > Dataset © Coveo Solutions Inc., released for the SIGIR 2021 eCom Data
 > Challenge and used here under their research/educational Terms &
@@ -29,6 +29,8 @@ Generated 2026-08-19 10:39 UTC from 26,369,951 events across 4,934,699 sessions.
 | Product detail view | 3,260,353 | 66.07 | 3,260,353 | 66.07 |
 | Add to cart | 214,684 | 4.35 | 194,882 | 3.95 |
 | Purchase | 53,209 | 1.08 | 40,291 | 0.82 |
+
+![Funnel, both definitions](figures/funnel.png)
 
 **Step-attained** asks *did the session ever reach this stage?*
 **Strict-sequence** asks *did the stages happen in canonical order?*
@@ -89,6 +91,8 @@ overstates the problem.
 | 10-24 | 555,426 | 3.78 | 415.54 |
 | 25-49 | 137,383 | 10.85 | 1,006.32 |
 | 50+ | 37,357 | 20.64 | 1,800.00 |
+
+![Session depth vs conversion](figures/session_depth.png)
 
 Timing milestones (medians, on the 30-minute-capped duration):
 

@@ -144,7 +144,7 @@ LEAKY_WITH_TOTAL = [
 LEAKY_NO_TOTAL = [c for c in LEAKY_WITH_TOTAL if c != "n_events"]
 
 
-def _fit_leaky(df: pd.DataFrame, cols: list[str], label: str) -> dict:
+def _fit_leaky(df: pd.DataFrame, cols: list[str], label: str):
     cut = int(len(df) * (1 - TEST_FRACTION))
     train, test = df.iloc[:cut], df.iloc[cut:]
     pipe = Pipeline([
@@ -153,11 +153,12 @@ def _fit_leaky(df: pd.DataFrame, cols: list[str], label: str) -> dict:
         ("model", LogisticRegression(max_iter=2000, random_state=RANDOM_STATE)),
     ])
     pipe.fit(train[cols], train["purchased"])
-    return evaluate(label, test["purchased"].to_numpy(),
-                    pipe.predict_proba(test[cols])[:, 1])
+    y_true = test["purchased"].to_numpy()
+    y_score = pipe.predict_proba(test[cols])[:, 1]
+    return evaluate(label, y_true, y_score), y_true, y_score
 
 
-def leakage_demo(con) -> tuple[dict, dict, int, int]:
+def leakage_demo(con):
     """Show that removing the outcome column is not enough.
 
     `fct_session` satisfies an accounting identity:
@@ -185,9 +186,84 @@ def leakage_demo(con) -> tuple[dict, dict, int, int]:
         FROM fct_session WHERE reached_add
     """).fetchone()
 
-    with_total = _fit_leaky(df, LEAKY_WITH_TOTAL, "Leaky — with n_events total")
-    no_total = _fit_leaky(df, LEAKY_NO_TOTAL, "Leaky — total removed")
-    return with_total, no_total, int(identity_holds), int(n)
+    with_total, yt1, ys1 = _fit_leaky(df, LEAKY_WITH_TOTAL, "Leaky — with n_events total")
+    no_total, yt2, ys2 = _fit_leaky(df, LEAKY_NO_TOTAL, "Leaky — total removed")
+    curves = {"leaky": (yt1, ys1), "leaky_fixed": (yt2, ys2)}
+    return with_total, no_total, int(identity_holds), int(n), curves
+
+
+def make_figure(honest, leaky_curves, results, leaky, leaky_fixed) -> None:
+    """ROC comparison + precision-recall for the honest model."""
+    from matplotlib.ticker import PercentFormatter
+    import matplotlib.pyplot as plt
+    from sklearn.metrics import roc_curve
+
+    from src.viz import style
+    from src.viz.style import BLUE, ORANGE, GREY, DARK_GREY, RED, save
+
+    style.apply()
+    y_true, y_score = honest
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(11.5, 4.8))
+
+    # ---- left: ROC, honest vs leaky ------------------------------------
+    for (yt, ys), colour, label, width in [
+        (leaky_curves["leaky"], RED, None, 3.0),
+        (leaky_curves["leaky_fixed"], ORANGE, None, 2.2),
+        ((y_true, y_score), BLUE, None, 2.4),
+    ]:
+        fpr, tpr, _ = roc_curve(yt, ys)
+        ax1.plot(fpr, tpr, color=colour, linewidth=width)
+
+    fpr, tpr, _ = roc_curve(*leaky_curves["leaky"])
+    ax1.plot(fpr, tpr, color=RED, linewidth=3.0,
+             label=f"Leaky, whole-session  (AUC {leaky['roc_auc']:.3f})")
+    fpr, tpr, _ = roc_curve(*leaky_curves["leaky_fixed"])
+    ax1.plot(fpr, tpr, color=ORANGE, linewidth=2.2,
+             label=f"Leaky, total removed  (AUC {leaky_fixed['roc_auc']:.3f})")
+    fpr, tpr, _ = roc_curve(y_true, y_score)
+    best = max(results[1:], key=lambda r: r["pr_auc"])
+    ax1.plot(fpr, tpr, color=BLUE, linewidth=2.4,
+             label=f"Honest, truncated  (AUC {best['roc_auc']:.3f})")
+    ax1.plot([0, 1], [0, 1], color=GREY, linestyle="--", linewidth=1.3,
+             label="Chance (AUC 0.500)")
+
+    ax1.set_xlabel("False positive rate")
+    ax1.set_ylabel("True positive rate")
+    ax1.set_title("Data leakage, visualised")
+    ax1.legend(loc="lower right", fontsize=8.5)
+    ax1.set_xlim(0, 1)
+    ax1.set_ylim(0, 1.02)
+    style.despine(ax1)
+    ax1.annotate("a perfect score\nis a bug report",
+                 xy=(0.015, 0.995), xytext=(0.34, 0.55), fontsize=9,
+                 color=RED, fontweight="bold",
+                 arrowprops=dict(arrowstyle="->", color=RED, lw=1.4))
+
+    # ---- right: precision-recall for the honest model -------------------
+    prec, rec, _ = precision_recall_curve(y_true, y_score)
+    base = float(y_true.mean())
+    ax2.plot(rec, prec, color=BLUE, linewidth=2.4,
+             label=f"Honest model  (PR-AUC {best['pr_auc']:.3f})")
+    ax2.axhline(base, color=GREY, linestyle="--", linewidth=1.4,
+                label=f"Base rate  ({base:.1%})")
+    ax2.set_xlabel("Recall")
+    ax2.set_ylabel("Precision")
+    ax2.set_title("What the honest model is actually worth")
+    ax2.yaxis.set_major_formatter(PercentFormatter(xmax=1, decimals=0))
+    ax2.xaxis.set_major_formatter(PercentFormatter(xmax=1, decimals=0))
+    ax2.set_ylim(0, max(0.75, float(prec.max()) * 1.05))
+    ax2.legend(loc="upper right", fontsize=8.5)
+    style.despine(ax2)
+    ax2.annotate(
+        f"Top 10% of carts by score:\n{best['prec_top10']:.1%} convert "
+        f"vs {base:.1%} overall\n({best['lift_top10']:.2f}x lift)",
+        xy=(0.03, 0.62), xytext=(0.22, 0.50), fontsize=9, color=DARK_GREY,
+        bbox=dict(boxstyle="round,pad=0.5", facecolor="#f7fafc",
+                  edgecolor="#cbd5e0"))
+
+    fig.suptitle("Purchase-intent prediction: the honest result, and the leak that flatters it",
+                 fontsize=13, fontweight="bold", y=1.03)
+    save(fig, config.FIGURES_DIR / "ml_leakage.png")
 
 
 # --------------------------------------------------------------------------
@@ -224,7 +300,7 @@ def main() -> None:
 
     # Baseline: constant prediction at the base rate. Any model that cannot
     # beat this is not doing anything.
-    results.append(evaluate("Baseline (predict base rate)",
+    results.append(evaluate("Baseline (constant prediction)",
                             yte, np.full(len(yte), base)))
 
     print("Training logistic regression", end="", flush=True)
@@ -248,10 +324,13 @@ def main() -> None:
 
     print("Running leakage demonstration", end="", flush=True)
     t0 = time.time()
-    leaky, leaky_fixed, identity_holds, identity_n = leakage_demo(con)
+    leaky, leaky_fixed, identity_holds, identity_n, curves = leakage_demo(con)
     print(f"  {time.time() - t0:.1f}s")
 
     best = max(results[1:], key=lambda r: r["pr_auc"])
+
+    print("Writing figure")
+    make_figure((yte, gb_score), curves, results, leaky, leaky_fixed)
 
     # ---- report ----------------------------------------------------------
     rep.add(block(f"""
@@ -282,27 +361,43 @@ def main() -> None:
         temporal problem, and the gap is not always small.
     """))
 
+    test_base = float(yte.mean())
     rep.add(block(f"""
         ## 2. Results
 
         {fmt(results)}
 
+        **A note on which base rate.** The population converts at
+        {base:.2%}, but the *test period* — the latest 20% of carts — converts
+        at **{test_base:.2%}**. Every metric above is computed against the test
+        base rate, since that is the population the model is scored on.
+
+        The gap is not a bug; it is temporal drift, and it is visible only
+        because the split respects time. A random split would have averaged the
+        two periods together and hidden it. Cart conversion declined over the
+        89-day window, which is itself worth knowing: a model trained on early
+        behaviour is scoring a slightly different world, and that is exactly the
+        condition a deployed model lives in.
+
         ROC-AUC is reported because it is expected, but **PR-AUC against the
-        base rate is the number that matters here**. With a {base:.1%} positive
-        class, a model can post a respectable-looking ROC-AUC while being
-        useless at the top of the ranking, which is the only region anyone acts
-        on.
+        base rate is the number that matters here**. With a {test_base:.1%}
+        positive class, a model can post a respectable-looking ROC-AUC while
+        being useless at the top of the ranking, which is the only region anyone
+        acts on.
 
         Best model: **{best['model']}**, PR-AUC {best['pr_auc']:.4f} against a
-        base rate of {base:.4f} — **{best['pr_lift']:.2f}× better than chance**.
+        base rate of {test_base:.4f} — **{best['pr_lift']:.2f}× better than
+        chance**.
 
         ### What this is worth operationally
 
         Targeting the **top 10%** of carts by predicted abandonment risk reaches
-        a group converting at {best['prec_top10']:.1%} against {base:.1%}
+        a group converting at {best['prec_top10']:.1%} against {test_base:.1%}
         overall — a **{best['lift_top10']:.2f}× lift**. For a retention
         intervention with a real per-contact cost, that ratio, not the AUC, is
         what decides whether the model pays for itself.
+
+        ![Leakage and precision-recall](figures/ml_leakage.png)
     """))
 
     rep.add(block(f"""

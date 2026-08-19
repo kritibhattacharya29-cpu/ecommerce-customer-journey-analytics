@@ -1,6 +1,6 @@
 # Product & Commercial Analytics — Coveo SIGIR 2021 eCommerce Dataset
 
-Generated 2026-08-19 10:44 UTC from 7,121,576 product views across 57,483 SKUs.
+Generated 2026-08-19 12:05 UTC from 7,121,576 product views across 57,483 SKUs.
 
 > Dataset © Coveo Solutions Inc., released for the SIGIR 2021 eCom Data
 > Challenge and used here under their research/educational Terms &
@@ -43,6 +43,8 @@ count tells a completely different story:
 | Product views on categorised SKUs | 7,121,576 | **100.00%** |
 | Product views on priced SKUs | 7,120,602 | 99.99% |
 | Purchases on priced SKUs | 66,876 | **89.90%** |
+
+![Catalog coverage cross-tab](figures/catalog_coverage.png)
 
 ### The missingness has a structure
 
@@ -165,6 +167,8 @@ Traffic concentration:
 | Top 1% | 31.1% |
 | Top 10% | 80.5% |
 | Top 20% | 92.9% |
+
+![Demand concentration](figures/demand_concentration.png)
 
 This is the classic long tail, and it constrains the recommendation work
 in Layer 5 directly. With demand this concentrated, a recommender that

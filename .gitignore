@@ -21,9 +21,11 @@ __pycache__/
 *.py[cod]
 .ipynb_checkpoints/
 
-# Reports may embed row-level data -- opt in explicitly, never by default
-reports/figures/*.png
-!reports/figures/.gitkeep
+# Generated figures ARE committed: they plot aggregates only (counts, rates,
+# curves) and are the visual half of the reports. The CI hash-scan gate is what
+# actually enforces that no row-level data reaches a tracked file -- see
+# .github/workflows/tests.yml. Never commit a figure that plots or labels
+# individual sessions, SKUs or URLs.
 
 # OS / editor
 .DS_Store

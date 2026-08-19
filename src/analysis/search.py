@@ -123,6 +123,8 @@ def position_bias(con, rep: Report) -> None:
 
         {md_table(["Result position", "Clicks", "% of clicks"], tbl)}
 
+        ![Position bias](figures/position_bias.png)
+
         Median clicked position: **{stats[0]:,.0f}**; 90th percentile:
         {stats[1]:,.0f}.
 
