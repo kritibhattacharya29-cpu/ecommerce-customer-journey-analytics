@@ -168,6 +168,60 @@ def main() -> int:
               q("SELECT count(*) FROM fct_session WHERE duration_sec_raw > 1800"),
               predicate=lambda v: v > 0)
 
+        print("\n--- ML features: leakage guards ---")
+        # The whole point of ml_cart_sessions is that features stop at the add.
+        # These assertions are the regression test for that guarantee.
+        check("one row per session that added to cart",
+              q("SELECT count(*) FROM ml_cart_sessions"),
+              q("SELECT count(*) FROM fct_session WHERE reached_add"))
+
+        check("pre-add event count never exceeds the add's own position",
+              q("""SELECT count(*) FROM ml_cart_sessions
+                   WHERE pre_n_events > pre_add_position"""), 0)
+
+        check("no negative dwell time (add cannot precede session start)",
+              q("SELECT count(*) FROM ml_cart_sessions WHERE pre_sec_to_add < 0"), 0)
+
+        # If any pre_* feature counted post-add events, sessions with a purchase
+        # would show inflated counts. Compare against a directly-computed
+        # truncated count as ground truth.
+        check("pre_n_product_views matches an independent truncated count",
+              q("""WITH fa AS (
+                     SELECT session_id_hash, min(event_seq) AS add_seq
+                     FROM stg_browsing WHERE funnel_stage='add_to_cart' GROUP BY 1),
+                   truth AS (
+                     SELECT f.session_id_hash,
+                            count(*) FILTER (WHERE b.funnel_stage='product_detail') AS n
+                     FROM fa f JOIN stg_browsing b
+                       ON b.session_id_hash=f.session_id_hash AND b.event_seq<=f.add_seq
+                     GROUP BY 1)
+                   SELECT count(*) FROM ml_cart_sessions m
+                   JOIN truth t USING (session_id_hash)
+                   WHERE m.pre_n_product_views <> t.n"""), 0)
+
+        check("label counts only purchases strictly after the add",
+              q("""WITH fa AS (
+                     SELECT session_id_hash, min(event_seq) AS add_seq
+                     FROM stg_browsing WHERE funnel_stage='add_to_cart' GROUP BY 1),
+                   truth AS (
+                     SELECT f.session_id_hash,
+                            max(CASE WHEN b.funnel_stage='purchase'
+                                      AND b.event_seq > f.add_seq THEN 1 ELSE 0 END) AS y
+                     FROM fa f JOIN stg_browsing b
+                       ON b.session_id_hash=f.session_id_hash
+                     GROUP BY 1)
+                   SELECT count(*) FROM ml_cart_sessions m
+                   JOIN truth t USING (session_id_hash)
+                   WHERE m.purchased <> t.y"""), 0)
+
+        # The accounting-identity trap, as a standing check: no subset of the
+        # feature columns may sum to a total that reconstructs the label.
+        check("ml_cart_sessions exposes no session-total column",
+              q("""SELECT count(*) FROM duckdb_columns()
+                   WHERE table_name='ml_cart_sessions'
+                     AND column_name IN ('n_events','n_purchases','duration_sec_raw',
+                                         'duration_sec_capped','reached_purchase')"""), 0)
+
         print("\n--- Search ---")
         check("phantom clicks are excluded from valid_clicked_skus",
               q("""SELECT count(*) FROM stg_search

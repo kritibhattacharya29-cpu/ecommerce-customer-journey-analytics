@@ -92,7 +92,7 @@ for the ML layer, keeping every analytical scan cheap.
 | **2 — Customer journey** | Funnel (both definitions), cart abandonment, session depth, time-to-purchase | ✅ [report](reports/funnel_analysis.md) |
 | **3 — Search analytics** | Zero-result rate, CTR, position bias, click → purchase attribution | ✅ [report](reports/search_analysis.md) |
 | **4 — Product & commercial** | Catalog coverage, category performance, price sensitivity, demand concentration | ✅ [report](reports/product_analysis.md) |
-| **5 — Data science** | Purchase-intent classification, session-based recommendation | 🚧 |
+| **5 — Data science** | Purchase-intent / cart-abandonment prediction, leakage analysis | ✅ [report](reports/ml_purchase_intent.md) |
 
 ---
 
@@ -145,6 +145,45 @@ found. The practical consequence is specific rather than general: 10.1% of
 purchases sit on unpriced SKUs, so revenue-by-price omits a tenth of
 conversions, while category-by-views omits nothing. Dropping those rows instead
 of modelling them as `(unknown)` would have hidden the structure entirely.
+
+**Purchase-intent prediction, and a leakage trap worth seeing.** Predicting
+whether a cart converts, using only events up to the add-to-cart:
+
+| Model | ROC-AUC | PR-AUC | Lift@10% |
+|---|---|---|---|
+| Baseline (21.5% base rate) | 0.500 | 0.215 | 1.00× |
+| Honest model (features truncated at the add) | 0.657 | 0.313 | 1.92× |
+| **Same task, whole-session features** | **1.000** | — | — |
+
+That 1.000 is a *perfect* score, and the reason is the interesting part. The
+leaky feature set deliberately excludes every obvious giveaway — no
+`n_purchases`, no `sec_to_purchase`, no `reached_purchase`. Inspected one column
+at a time, nothing looks wrong. But `fct_session` satisfies an accounting
+identity that holds for all 214,684 cart sessions:
+
+```
+n_events = n_pageviews + n_product_views + n_adds + n_removes + n_purchases
+```
+
+so the excluded label is recoverable by subtraction, and logistic regression
+finds it instantly — it is exactly one linear combination away. Removing
+`n_events` alone drops ROC-AUC from **1.000 to 0.793**, confirming the diagnosis
+rather than assuming it.
+
+The transferable lesson: checking features one at a time is not enough. Any
+group of columns summing to a total can reconstruct an excluded member, and
+counts that partition a total are what a well-designed fact table looks like.
+The right question is whether the target is *reconstructible* from the feature
+set, not whether it is *present* in it. Six standing assertions in
+[`tests/test_pipeline.py`](tests/test_pipeline.py) guard the truncation.
+
+The honest model is deliberately unimpressive at 0.657, and
+[the report](reports/ml_purchase_intent.md) argues that is the correct result:
+pre-cart behaviour barely separates the classes (8.33 vs 9.61 events; shoppers
+who viewed the product before adding it convert *slightly less* often), because
+what decides a checkout — price comparison elsewhere, shipping cost, payment
+friction — was never recorded. A 0.95 here would be grounds to hunt for leakage,
+not to celebrate.
 
 **Row-count reconciliation.** `python -m src.transform.reconcile` proves every
 dropped row is accounted for:
@@ -211,7 +250,11 @@ python -m src.transform.reconcile
 ```
 
 ```bash
-python -m src.analysis.funnel && python -m src.analysis.search
+python -m src.analysis.funnel && python -m src.analysis.search && python -m src.analysis.product
+```
+
+```bash
+python -m src.ml.purchase_intent
 ```
 
 Add `--with-vectors` to the ingest only when working on the ML layer.
