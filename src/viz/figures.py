@@ -267,8 +267,54 @@ def fig_catalog_coverage(con) -> None:
     save(fig, FIGDIR / "catalog_coverage.png")
 
 
+def fig_hourly_pattern(con) -> None:
+    """Traffic and conversion by UTC hour — evidence the conversion is sane."""
+    rows = con.execute("""
+        SELECT hour_of_day,
+               count(*)                                                    AS sessions,
+               100.0 * count(*) FILTER (WHERE reached_purchase) / count(*) AS conv
+        FROM fct_session GROUP BY 1 ORDER BY 1
+    """).fetchall()
+    hrs = [r[0] for r in rows]
+    sess = [r[1] for r in rows]
+    conv = [r[2] for r in rows]
+
+    fig, ax = plt.subplots(figsize=(9.5, 4.4))
+    ax.bar(hrs, sess, color=GREY, width=0.72, label="Sessions")
+    ax.set_xlabel("Hour of day (UTC)")
+    ax.set_ylabel("Sessions", color=DARK_GREY)
+    ax.yaxis.set_major_formatter(FuncFormatter(thousands))
+    ax.set_xticks(range(0, 24))
+    ax.set_xlim(-0.7, 23.7)
+    style.despine(ax)
+
+    ax2 = ax.twinx()
+    ax2.plot(hrs, conv, color=ORANGE, linewidth=2.4, marker="o", markersize=4.5)
+    ax2.set_ylabel("Conversion rate", color=ORANGE)
+    ax2.yaxis.set_major_formatter(PercentFormatter(decimals=1))
+    ax2.tick_params(axis="y", colors=ORANGE)
+    ax2.grid(False)
+    for side in ("top", "right", "left", "bottom"):
+        ax2.spines[side].set_visible(False)
+
+    peak = max(rows, key=lambda r: r[1])
+    trough = min(rows, key=lambda r: r[1])
+    ax.annotate(f"peak {peak[0]:02d}:00 UTC\n≈ evening local",
+                xy=(peak[0], peak[1]), xytext=(peak[0] + 3.2, peak[1] * 0.93),
+                fontsize=9, color=BLUE, fontweight="bold",
+                arrowprops=dict(arrowstyle="->", color=BLUE, lw=1.4))
+    ax.annotate(f"trough {trough[0]:02d}:00 UTC\n≈ small hours local",
+                xy=(trough[0], trough[1]), xytext=(trough[0] + 1.4, peak[1] * 0.42),
+                fontsize=9, color=DARK_GREY,
+                arrowprops=dict(arrowstyle="->", color=DARK_GREY, lw=1.4))
+
+    ax.set_title("A normal retail day — in UTC, which is not the shopper's clock")
+    save(fig, FIGDIR / "hourly_pattern.png")
+
+
 FIGURES = [
     ("funnel", fig_funnel),
+    ("hourly pattern", fig_hourly_pattern),
     ("session depth", fig_session_depth),
     ("position bias", fig_position_bias),
     ("demand concentration", fig_demand_concentration),

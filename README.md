@@ -98,6 +98,23 @@ so the analysis is queryable by standard SQL tooling and Power BI. Using each
 for what it is good at is the actual engineering decision here; running the full
 event stream through Postgres would take hours per iteration and consume ~20 GB.
 
+**The PostgreSQL layer is live, not aspirational.** 4,934,699 sessions +
+66,386 products are loaded and verified against the warehouse by
+[`verify_postgres.py`](src/transform/verify_postgres.py), which runs 19
+aggregates against *both* engines and compares them. It runs without
+administrator rights, from the binaries-only distribution, on localhost:5433 —
+see [`docs/POSTGRES_SETUP.md`](docs/POSTGRES_SETUP.md).
+
+That verification step earned its place immediately: it caught two bugs that
+row counts alone would never have surfaced.
+
+- **A `HUGEINT` → `float64` downcast.** DuckDB's `sum()` returns int128, pandas
+  has no such dtype, so `COPY` was handed `"0.0"` for an `INTEGER` column.
+- **A timezone bug.** `to_timestamp()` renders in the *session's* time zone, so
+  `hour_of_day` depended on the machine running the pipeline — wrong for 100% of
+  26.4M events and different for 34.6% of `day_of_week` values. Switching to
+  `epoch_ms()` (naive UTC) made the columns reproducible anywhere.
+
 **Why vectors are ingested separately.** `query_vector`, `description_vector`
 and `image_vector` are ~1.6 GB of the 1.7 GB search file, and no funnel or
 conversion question needs them. They are loaded only behind `--with-vectors`,
@@ -177,7 +194,7 @@ whether a cart converts, using only events up to the add-to-cart:
 | Model | ROC-AUC | PR-AUC | Lift@10% |
 |---|---|---|---|
 | Baseline (21.5% base rate) | 0.500 | 0.215 | 1.00× |
-| Honest model (features truncated at the add) | 0.657 | 0.313 | 1.92× |
+| Honest model (features truncated at the add) | 0.657 | 0.314 | 1.90× |
 | **Same task, whole-session features** | **1.000** | — | — |
 
 ![Leakage and precision-recall](reports/figures/ml_leakage.png)
@@ -233,18 +250,26 @@ raw_browsing                               36,079,307
 │   ├── config.py           single source of truth for paths (reads .env)
 │   ├── ingest/             raw CSV → DuckDB
 │   ├── profiling/          data-quality assessment
-│   ├── transform/          staging + dimensional model
-│   └── analysis/           funnel, search, product analytics
+│   ├── transform/          staging, marts, reconciliation, Postgres load + verify
+│   ├── analysis/           funnel, search, product analytics
+│   ├── ml/                 purchase-intent model + leakage analysis
+│   └── viz/                chart generation
 ├── sql/
-│   ├── duckdb/             transformation SQL
-│   └── postgres/           serving-layer schema + marts
-├── notebooks/              exploratory analysis
-├── tests/fixtures/         SYNTHETIC data only — never real rows
+│   ├── duckdb/             01 staging · 02 marts · 03 ML features
+│   └── postgres/           serving-layer schema, constraints, BI views
+├── scripts/
+│   └── pg.ps1              local PostgreSQL lifecycle (no admin required)
+├── tests/
+│   ├── fixtures/           SYNTHETIC generator only — never real rows
+│   └── test_pipeline.py    25 end-to-end assertions
 ├── docs/
-│   ├── DATA_ACCESS.md      how to obtain the dataset + licence compliance
+│   ├── DATA_ACCESS.md      obtaining the dataset + licence compliance
+│   ├── POSTGRES_SETUP.md   serving-layer setup and load tuning
+│   ├── architecture.md     12 decisions, the constraints behind them
 │   └── data_dictionary.md  field-level reference
-├── reports/                generated analysis output
-└── dashboard/              Power BI artefacts
+├── reports/                generated analysis + figures
+└── .github/workflows/      CI: tests + licence gate
+```
 ```
 
 ---
@@ -280,6 +305,13 @@ python -m src.transform.reconcile
 python -m src.analysis.funnel && python -m src.analysis.search && python -m src.analysis.product
 ```
 
+Optional PostgreSQL serving layer — no admin rights required, see
+[`docs/POSTGRES_SETUP.md`](docs/POSTGRES_SETUP.md):
+
+```bash
+python -m src.transform.load_postgres && python -m src.transform.verify_postgres
+```
+
 ```bash
 python -m src.ml.purchase_intent
 ```
@@ -303,6 +335,8 @@ Measured on a 4-core / 7.8 GB laptop:
 | Data-quality assessment | ~130 s | full 36M events |
 | `build_model` | 737 s | `stg_browsing` alone is 609 s |
 | Analyses | < 10 s | reads the marts |
+| PostgreSQL load | 164 s | 4.9M sessions; was 519 s before tuning |
+| Cross-engine verify | < 20 s | 19 aggregates, both engines |
 
 `stg_browsing` needs two sorts of ~7 GB with a 2 GB memory budget, peaking near
 12 GB of spill. On a machine with more RAM it is far quicker.

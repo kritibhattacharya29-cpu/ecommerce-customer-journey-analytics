@@ -1,6 +1,6 @@
 # Customer Journey & Funnel Analysis — Coveo SIGIR 2021 eCommerce Dataset
 
-Generated 2026-08-19 12:05 UTC from 26,369,951 events across 4,934,699 sessions.
+Generated 2026-08-19 14:27 UTC from 26,369,951 events across 4,934,699 sessions.
 
 > Dataset © Coveo Solutions Inc., released for the SIGIR 2021 eCom Data
 > Challenge and used here under their research/educational Terms &
@@ -134,23 +134,55 @@ search costs, it is not visible at session grain. That null result is
 examined in `search_analysis.md` §4, which sets out why the session is
 the wrong unit of analysis for this question.
 
-## 5. Intra-week pattern
+## 5. Intra-week and intra-day pattern
 
 | Day | Sessions | Conversion % |
 |---|---|---|
-| Sunday | 713,667 | 1.02 |
-| Monday | 767,829 | 1.13 |
-| Tuesday | 716,515 | 1.14 |
-| Wednesday | 688,516 | 1.09 |
-| Thursday | 664,198 | 1.07 |
-| Friday | 712,319 | 1.06 |
-| Saturday | 671,655 | 1.02 |
+| Sunday | 738,801 | 1.04 |
+| Monday | 726,314 | 1.13 |
+| Tuesday | 714,771 | 1.14 |
+| Wednesday | 668,644 | 1.09 |
+| Thursday | 687,365 | 1.03 |
+| Friday | 700,196 | 1.10 |
+| Saturday | 698,608 | 1.02 |
 
-Busiest hour: **06:00** (338,964 sessions).
-Highest-converting hour: **00:00** (1.49%).
+![Traffic and conversion by hour](figures/hourly_pattern.png)
 
-Only day-of-week and hour-of-day are analysed. Coveo shifted every
-timestamp by an undisclosed number of weeks, so absolute dates carry no
-meaning — but the shift preserves intra-week structure, which is what
-makes this section valid and any calendar-based seasonality invalid.
-Hours are as recorded server-side and are not timezone-corrected.
+| | Hour (UTC) | Sessions | Conversion |
+|---|---|---|---|
+| Busiest | **00:00** | 342,651 | 1.41% |
+| Quietest | **07:00** | 17,593 | 0.46% |
+| Highest-converting | **00:00** | 342,651 | 1.41% |
+
+Peak-to-trough traffic ratio: **19.5×**.
+
+### Hours are UTC, and that is a deliberate choice
+
+Timestamps are converted with `epoch_ms()`, which is timezone-independent.
+An earlier version used `to_timestamp()`, which resolves in the *session's*
+timezone and therefore produced different `hour_of_day` values depending on
+which machine ran the pipeline — see `docs/architecture.md` §10.
+
+UTC is reproducible, but it is **not the shopper's local clock**. Coveo do
+not disclose the retailer's timezone, so "traffic peaks at
+00:00" is not a statement about when people shop.
+
+### What the shape does let you infer
+
+The curve is a textbook retail day: a deep overnight trough at
+07:00 UTC, a climb through the working day, and an evening
+peak at 00:00 UTC. Anchoring that shape to normal human
+behaviour — quietest around 02:00–03:00 local, busiest around
+19:00–21:00 local — places the retailer near **UTC-5**, i.e. North
+American Eastern time.
+
+That is an inference from the traffic shape, not a disclosed fact, and
+nothing downstream depends on it. It is worth stating only because it
+shows the UTC hours are behaving sensibly rather than being scrambled by
+the conversion — which, given the bug that preceded this, was worth
+checking.
+
+Day-of-week and hour-of-day are the only temporal signals used anywhere
+in this project. Coveo shifted every timestamp by an undisclosed number
+of weeks, so absolute dates carry no meaning, while intra-week and
+intra-day structure survive the shift intact.

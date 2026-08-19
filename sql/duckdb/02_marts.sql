@@ -70,13 +70,20 @@ WITH ev AS (
     GROUP BY session_id_hash
 ),
 srch AS (
+    -- The ::BIGINT casts are load-bearing, not cosmetic. DuckDB's sum() on an
+    -- integer column returns HUGEINT (int128) to be overflow-safe. pandas has
+    -- no int128, so a HUGEINT column silently arrives as float64, and
+    -- to_csv then writes "0.0" -- which PostgreSQL rejects for an INTEGER
+    -- column. These counts are small by construction, so the width is pure
+    -- overhead; casting here fixes the type at the source rather than papering
+    -- over it in the loader.
     SELECT
         session_id_hash,
         count(*)                                        AS n_searches,
         count(*) FILTER (WHERE is_zero_result)          AS n_zero_result_searches,
-        sum(n_clicks)                                   AS n_search_clicks,
-        sum(len(valid_clicked_skus))                    AS n_valid_search_clicks,
-        sum(n_results)                                  AS n_search_impressions
+        sum(n_clicks)::BIGINT                           AS n_search_clicks,
+        sum(len(valid_clicked_skus))::BIGINT            AS n_valid_search_clicks,
+        sum(n_results)::BIGINT                          AS n_search_impressions
     FROM stg_search
     GROUP BY session_id_hash
 )

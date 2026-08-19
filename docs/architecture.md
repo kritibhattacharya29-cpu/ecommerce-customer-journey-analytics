@@ -165,3 +165,82 @@ out-of-order events, millisecond collisions, PDP double-fires, duplicate rows,
 cross-session purchases, over-long session gaps, uncatalogued SKUs, phantom
 search clicks and zero-result searches, so that all 19 assertions exercise real
 handling rather than a happy path.
+
+---
+
+## 10. Timestamps are converted in UTC, explicitly
+
+**Decision.** Epoch milliseconds are converted with DuckDB's `epoch_ms()`, never
+`to_timestamp()`.
+
+**Why.** `to_timestamp()` returns `TIMESTAMP WITH TIME ZONE`, and `hour()` /
+`dayofweek()` extract from it in the *session's* time zone. That makes derived
+columns a property of the machine running the pipeline rather than of the data.
+
+This was not theoretical. The original implementation used `to_timestamp()` on a
+laptop set to Asia/Calcutta. Switching to `epoch_ms()` — a naive `TIMESTAMP`
+interpreted as UTC — changed `hour_of_day` for **100% of the 26.4M staged
+events** and `day_of_week` for **34.6%** of them. The same code, on the same
+data, produced different answers depending on where it ran.
+
+**How it was caught.** Not by a test, and not by inspection. The cross-engine
+verification in §11 flagged the two timestamp columns as disagreeing between
+DuckDB and PostgreSQL, which led back to the conversion function.
+
+**What survives.** The retailer's own time zone is not disclosed and the
+timestamps are week-shifted, so a UTC hour is not the shopper's local clock.
+What is interpretable is the *shape* — the relative distribution across the day —
+which a constant offset does not change. Every hour-of-day claim in this project
+is a claim about shape.
+
+---
+
+## 11. The serving layer is verified, not assumed
+
+**Decision.** `src/transform/verify_postgres.py` runs 19 aggregates against both
+DuckDB and PostgreSQL and compares them.
+
+**Why.** A load that completes without error is not a load that is correct. Row
+counts can match while values are silently mangled, and every mangling mode is
+invisible from a `count(*)`.
+
+It has already paid for itself twice:
+
+- **HUGEINT → float64.** DuckDB's `sum()` over an integer returns int128 so it
+  cannot overflow. pandas has no int128 dtype, so the column arrived as float64
+  and `to_csv` wrote `"0.0"`, which PostgreSQL rejects for an `INTEGER` column.
+  Fixed with `::BIGINT` casts at the source, plus a guard in the loader that
+  names the offending column instead of failing inside `COPY`.
+- **The timezone bug in §10**, which nothing else would have surfaced.
+
+---
+
+## 12. Bulk loading drops indexes first
+
+**Decision.** For tables above ~1M rows, the loader captures index and
+constraint DDL, drops them, runs `COPY`, then rebuilds.
+
+**Why, and the wrong turn on the way.** Loading `fct_session` (4.9M rows)
+originally took **518.5s** using pandas DataFrames and `LIMIT/OFFSET` paging.
+
+Profiling attributed 58% of that to `pandas.to_csv`, so the obvious fix was to
+bypass pandas and let DuckDB write the CSV natively. That produced **507.1s** —
+a 2% improvement.
+
+The profile was wrong in an instructive way: it measured `COPY` into a `TEMP`
+table, which has no indexes, making `COPY` look nearly free. On the real table,
+maintaining a **587 MB primary-key index over a 64-char hash** one row at a time
+was the actual cost.
+
+| Approach | Time |
+|---|---|
+| pandas + `LIMIT/OFFSET` | 518.5s |
+| Native DuckDB CSV export | 507.1s |
+| …plus drop/rebuild indexes | **156.7s** |
+
+CHECK constraints are deliberately *not* dropped. They cost almost nothing per
+row, and waving through a load that violates the funnel invariants to save a few
+seconds would defeat the purpose of having them.
+
+**The transferable lesson:** a benchmark that omits the indexes is not a
+benchmark of the load.

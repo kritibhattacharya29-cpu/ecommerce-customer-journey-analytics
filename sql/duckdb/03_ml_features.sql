@@ -91,7 +91,9 @@ pre_search AS (
         p.session_id_hash,
         count(s.session_id_hash)                                AS pre_n_searches,
         count(s.session_id_hash) FILTER (WHERE s.is_zero_result) AS pre_n_zero_result,
-        coalesce(sum(len(s.valid_clicked_skus)), 0)             AS pre_n_search_clicks
+        -- ::BIGINT because DuckDB's sum() returns HUGEINT, which pandas cannot
+        -- represent and silently downcasts to float64. See 02_marts.sql.
+        coalesce(sum(len(s.valid_clicked_skus)), 0)::BIGINT      AS pre_n_search_clicks
     FROM pre p
     LEFT JOIN stg_search s
       ON s.session_id_hash            = p.session_id_hash
@@ -127,7 +129,7 @@ SELECT
     -- the ones it is tested on. In any deployed setting you train on the past
     -- and predict the future, so the split must respect time or the reported
     -- score is optimistic.
-    to_timestamp(p.add_ts / 1000)                       AS add_time,
+    epoch_ms(p.add_ts)                       AS add_time,
     p.add_ts,
 
     -- ---- behavioural features (all strictly pre-add) -----------------------
@@ -156,9 +158,9 @@ SELECT
     (coalesce(s.pre_n_searches, 0) > 0)::INTEGER        AS pre_used_search,
 
     -- ---- context -----------------------------------------------------------
-    dayofweek(to_timestamp(p.add_ts / 1000))            AS day_of_week,
-    hour(to_timestamp(p.add_ts / 1000))                 AS hour_of_day,
-    (dayofweek(to_timestamp(p.add_ts / 1000)) IN (0, 6))::INTEGER AS is_weekend,
+    dayofweek(epoch_ms(p.add_ts))            AS day_of_week,
+    hour(epoch_ms(p.add_ts))                 AS hour_of_day,
+    (dayofweek(epoch_ms(p.add_ts)) IN (0, 6))::INTEGER AS is_weekend,
 
     -- ---- product attributes of the added SKU -------------------------------
     -- price_bucket is an ordinal decile, never a currency amount.

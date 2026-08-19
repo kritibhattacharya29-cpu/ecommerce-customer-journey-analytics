@@ -1,6 +1,6 @@
 # Search Analytics — Coveo SIGIR 2021 eCommerce Dataset
 
-Generated 2026-08-19 12:05 UTC from 819,516 events across 550,100 sessions.
+Generated 2026-08-19 14:25 UTC from 819,516 events across 550,100 sessions.
 
 > Dataset © Coveo Solutions Inc., released for the SIGIR 2021 eCom Data
 > Challenge and used here under their research/educational Terms &

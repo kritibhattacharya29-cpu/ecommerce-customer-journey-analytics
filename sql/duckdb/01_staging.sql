@@ -110,7 +110,21 @@ SELECT
     product_sku_hash,
     hashed_url,
     server_timestamp_epoch_ms,
-    to_timestamp(server_timestamp_epoch_ms / 1000)          AS event_ts,
+
+    -- epoch_ms(), NOT to_timestamp().
+    --
+    -- to_timestamp() returns TIMESTAMP WITH TIME ZONE, which DuckDB renders --
+    -- and from which hour()/dayofweek() extract -- in the *session's* time
+    -- zone. That makes the derived columns depend on the machine the pipeline
+    -- happens to run on: on a developer box set to Asia/Calcutta every event
+    -- lands 5h30m later than on a UTC server. Measured on this dataset, that
+    -- changed hour_of_day for 100% of the 26.4M events and day_of_week for
+    -- 34.6% of them.
+    --
+    -- epoch_ms() returns a naive TIMESTAMP interpreted as UTC, so these columns
+    -- are identical everywhere. See docs/data_dictionary.md for why UTC hours
+    -- are a relative signal rather than the shopper's local clock.
+    epoch_ms(server_timestamp_epoch_ms)                      AS event_ts,
 
     -- (3) deterministic within-session sequence
     row_number() OVER (
@@ -120,8 +134,8 @@ SELECT
 
     -- Only intra-week seasonality is interpretable: Coveo shifted all
     -- timestamps by an undisclosed number of weeks, preserving weekly pattern.
-    dayofweek(to_timestamp(server_timestamp_epoch_ms / 1000)) AS day_of_week,
-    hour(to_timestamp(server_timestamp_epoch_ms / 1000))      AS hour_of_day,
+    dayofweek(epoch_ms(server_timestamp_epoch_ms))           AS day_of_week,
+    hour(epoch_ms(server_timestamp_epoch_ms))                AS hour_of_day,
 
     -- Canonical funnel stage. 'pageview' is the catch-all for non-product
     -- browsing; NULL product_action means no product was involved.
@@ -157,7 +171,7 @@ CREATE OR REPLACE TABLE stg_search AS
 SELECT
     session_id_hash,
     server_timestamp_epoch_ms,
-    to_timestamp(server_timestamp_epoch_ms / 1000)  AS event_ts,
+    epoch_ms(server_timestamp_epoch_ms)  AS event_ts,
     coalesce(product_skus, [])                      AS result_skus,
     coalesce(clicked_skus, [])                      AS clicked_skus,
     len(coalesce(product_skus, []))                 AS n_results,

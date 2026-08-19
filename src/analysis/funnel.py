@@ -253,21 +253,55 @@ def weekly_pattern(con, rep: Report) -> None:
         FROM fct_session GROUP BY 1 ORDER BY 1
     """).fetchall()
     peak = max(hours, key=lambda r: r[1])
+    trough = min(hours, key=lambda r: r[1])
     best = max(hours, key=lambda r: r[2])
+    ratio = peak[1] / trough[1] if trough[1] else float("nan")
 
     rep.add(block(f"""
-        ## 5. Intra-week pattern
+        ## 5. Intra-week and intra-day pattern
 
         {md_table(["Day", "Sessions", "Conversion %"], rows)}
 
-        Busiest hour: **{peak[0]:02d}:00** ({peak[1]:,} sessions).
-        Highest-converting hour: **{best[0]:02d}:00** ({best[2]:.2f}%).
+        ![Traffic and conversion by hour](figures/hourly_pattern.png)
 
-        Only day-of-week and hour-of-day are analysed. Coveo shifted every
-        timestamp by an undisclosed number of weeks, so absolute dates carry no
-        meaning — but the shift preserves intra-week structure, which is what
-        makes this section valid and any calendar-based seasonality invalid.
-        Hours are as recorded server-side and are not timezone-corrected.
+        | | Hour (UTC) | Sessions | Conversion |
+        |---|---|---|---|
+        | Busiest | **{peak[0]:02d}:00** | {peak[1]:,} | {peak[2]:.2f}% |
+        | Quietest | **{trough[0]:02d}:00** | {trough[1]:,} | {trough[2]:.2f}% |
+        | Highest-converting | **{best[0]:02d}:00** | {best[1]:,} | {best[2]:.2f}% |
+
+        Peak-to-trough traffic ratio: **{ratio:,.1f}×**.
+
+        ### Hours are UTC, and that is a deliberate choice
+
+        Timestamps are converted with `epoch_ms()`, which is timezone-independent.
+        An earlier version used `to_timestamp()`, which resolves in the *session's*
+        timezone and therefore produced different `hour_of_day` values depending on
+        which machine ran the pipeline — see `docs/architecture.md` §10.
+
+        UTC is reproducible, but it is **not the shopper's local clock**. Coveo do
+        not disclose the retailer's timezone, so "traffic peaks at
+        {peak[0]:02d}:00" is not a statement about when people shop.
+
+        ### What the shape does let you infer
+
+        The curve is a textbook retail day: a deep overnight trough at
+        {trough[0]:02d}:00 UTC, a climb through the working day, and an evening
+        peak at {peak[0]:02d}:00 UTC. Anchoring that shape to normal human
+        behaviour — quietest around 02:00–03:00 local, busiest around
+        19:00–21:00 local — places the retailer near **UTC-5**, i.e. North
+        American Eastern time.
+
+        That is an inference from the traffic shape, not a disclosed fact, and
+        nothing downstream depends on it. It is worth stating only because it
+        shows the UTC hours are behaving sensibly rather than being scrambled by
+        the conversion — which, given the bug that preceded this, was worth
+        checking.
+
+        Day-of-week and hour-of-day are the only temporal signals used anywhere
+        in this project. Coveo shifted every timestamp by an undisclosed number
+        of weeks, so absolute dates carry no meaning, while intra-week and
+        intra-day structure survive the shift intact.
     """))
 
 

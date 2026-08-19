@@ -90,6 +90,29 @@ def main() -> int:
                      HAVING min(event_seq) <> 1
                          OR max(event_seq) <> count(*))"""), 0)
 
+        print("\n--- Timestamps are UTC, not machine-local ---")
+        # Computed independently in Python from the raw epoch milliseconds, so
+        # this cannot be satisfied by the same DuckDB expression that produced
+        # the column. The original bug made hour_of_day depend on the machine's
+        # time zone -- wrong for 100% of events, and different between machines.
+        import datetime as _dt
+
+        sample = con.execute("""
+            SELECT server_timestamp_epoch_ms, hour_of_day, day_of_week
+            FROM stg_browsing LIMIT 2000
+        """).fetchall()
+        bad_hour = bad_dow = 0
+        for ms, hour, dow in sample:
+            utc = _dt.datetime.fromtimestamp(ms / 1000, _dt.timezone.utc)
+            if utc.hour != hour:
+                bad_hour += 1
+            # DuckDB dayofweek: 0=Sunday; Python weekday(): 0=Monday.
+            if ((utc.weekday() + 1) % 7) != dow:
+                bad_dow += 1
+
+        check("hour_of_day matches UTC computed in Python", bad_hour, 0)
+        check("day_of_week matches UTC computed in Python", bad_dow, 0)
+
         print("\n--- Deduplication ---")
         check("no exact duplicate rows survive staging",
               q("""SELECT count(*) FROM (

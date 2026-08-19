@@ -1,6 +1,6 @@
 # Product & Commercial Analytics — Coveo SIGIR 2021 eCommerce Dataset
 
-Generated 2026-08-19 12:05 UTC from 7,121,576 product views across 57,483 SKUs.
+Generated 2026-08-19 14:25 UTC from 7,121,576 product views across 57,483 SKUs.
 
 > Dataset © Coveo Solutions Inc., released for the SIGIR 2021 eCom Data
 > Challenge and used here under their research/educational Terms &

@@ -1,6 +1,6 @@
 # Purchase-Intent Prediction — Coveo SIGIR 2021 eCommerce Dataset
 
-Generated 2026-08-19 12:05 UTC from 214,684 cart sessions, 46,075 converting (21.46%).
+Generated 2026-08-19 14:25 UTC from 214,684 cart sessions, 46,075 converting (21.46%).
 
 > Dataset © Coveo Solutions Inc., released for the SIGIR 2021 eCom Data
 > Challenge and used here under their research/educational Terms &
@@ -13,7 +13,7 @@ Generated 2026-08-19 12:05 UTC from 214,684 cart sessions, 46,075 converting (21
 
 | | Finding |
 |---|---|
-| 🔵 | Base rate 21.5%; best model PR-AUC 0.3134 (1.58x chance), lift@10% 1.92x. |
+| 🔵 | Base rate 21.5%; best model PR-AUC 0.3140 (1.58x chance), lift@10% 1.90x. |
 | 🔴 | Whole-session features give a perfect 1.000 ROC-AUC vs 0.657 honest. The label is reconstructible by subtraction from an accounting identity (n_events = sum of parts), even though n_purchases was excluded. Removing n_events alone drops it to 0.793. |
 | 🟠 | Pre-cart behaviour is only weakly predictive; features are aggregates and discard event order. Sequence models are the next step. |
 
@@ -52,8 +52,8 @@ temporal problem, and the gap is not always small.
 | Model | ROC-AUC | PR-AUC | PR-AUC / base | Brier | Precision@10% | Lift@10% |
 |---|---|---|---|---|---|---|
 | Baseline (constant prediction) | 0.5000 | 0.1989 | 1.00x | 0.1596 | 0.210 | 1.06x |
-| Logistic regression | 0.6210 | 0.2825 | 1.42x | 0.2358 | 0.336 | 1.69x |
-| Gradient boosting | 0.6568 | 0.3134 | 1.58x | 0.1517 | 0.381 | 1.92x |
+| Logistic regression | 0.6230 | 0.2828 | 1.42x | 0.2359 | 0.334 | 1.68x |
+| Gradient boosting | 0.6571 | 0.3140 | 1.58x | 0.1517 | 0.377 | 1.90x |
 
 **A note on which base rate.** The population converts at
 21.46%, but the *test period* — the latest 20% of carts — converts
@@ -73,15 +73,15 @@ positive class, a model can post a respectable-looking ROC-AUC while
 being useless at the top of the ranking, which is the only region anyone
 acts on.
 
-Best model: **Gradient boosting**, PR-AUC 0.3134 against a
+Best model: **Gradient boosting**, PR-AUC 0.3140 against a
 base rate of 0.1989 — **1.58× better than
 chance**.
 
 ### What this is worth operationally
 
 Targeting the **top 10%** of carts by predicted abandonment risk reaches
-a group converting at 38.1% against 19.9%
-overall — a **1.92× lift**. For a retention
+a group converting at 37.7% against 19.9%
+overall — a **1.90× lift**. For a retention
 intervention with a real per-contact cost, that ratio, not the AUC, is
 what decides whether the model pays for itself.
 
@@ -134,9 +134,9 @@ Re-running the same task on **whole-session** aggregates from
 
 | Model | ROC-AUC | PR-AUC | Lift@10% |
 |---|---|---|---|
-| Honest (truncated at the add) | 0.6568 | 0.3134 | 1.92x |
+| Honest (truncated at the add) | 0.6571 | 0.3140 | 1.90x |
 | **Leaky — with `n_events`** | **0.9998** | **0.9998** | **5.02x** |
-| Leaky — `n_events` removed | 0.7930 | 0.4433 | 2.60x |
+| Leaky — `n_events` removed | 0.7931 | 0.4435 | 2.60x |
 
 A **perfect 1.000 ROC-AUC**. And the interesting part is
 *how*.
@@ -173,11 +173,11 @@ remaining features.
 ### Confirming the diagnosis
 
 Removing only `n_events` — the total that closes the identity — drops
-ROC-AUC from **0.9998 to 0.7930**.
+ROC-AUC from **0.9998 to 0.7931**.
 One column, and the perfect separation collapses. That is the diagnosis
 confirmed rather than assumed.
 
-The residual leak at 0.7930 is the ordinary kind:
+The residual leak at 0.7931 is the ordinary kind:
 a purchasing session is longer and busier *because* it purchased, so
 `duration_sec` and the counts are measurements taken after the outcome
 they are used to predict. Still leakage — just no longer perfect.

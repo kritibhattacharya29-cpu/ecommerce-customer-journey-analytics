@@ -101,8 +101,30 @@ else NULL. Any category or price segmentation must model this explicitly.
 
 ## Conventions used throughout
 
-**Timestamps.** Absolute dates are meaningless (week-shifted). Only day-of-week
-and hour-of-day are interpretable, and all seasonality is reported on that basis.
+**Timestamps are converted in UTC, explicitly.** Absolute dates are meaningless
+(week-shifted), so only day-of-week and hour-of-day carry information — which
+makes *how* the epoch milliseconds are converted load-bearing.
+
+The pipeline uses DuckDB's `epoch_ms()`, which returns a naive `TIMESTAMP`
+interpreted as UTC. It deliberately does **not** use `to_timestamp()`, which
+returns `TIMESTAMP WITH TIME ZONE` and from which `hour()` and `dayofweek()`
+extract in the *session's* time zone. That would make the derived columns depend
+on the machine running the pipeline: the same code on the same data gives
+different answers on a laptop set to Asia/Calcutta than on a UTC server.
+
+This was not hypothetical. The original implementation used `to_timestamp()`,
+and switching to `epoch_ms()` changed `hour_of_day` for **100% of the 26.4M
+staged events** and `day_of_week` for **34.6%** of them. The bug was caught by
+`src/transform/verify_postgres.py`, which compares DuckDB against PostgreSQL and
+flagged the two timestamp columns as disagreeing.
+
+**What UTC hours do and do not mean.** The retailer's own time zone is not
+disclosed, and the timestamps are week-shifted. So a UTC hour-of-day figure is
+*not* the shopper's local clock time — "traffic peaks at 14:00 UTC" says nothing
+about whether people shop at lunchtime. What survives is the **shape**: the
+relative distribution across the day, and the contrast between hours, which is
+unaffected by a constant offset. Any claim in this project about hour-of-day is
+a claim about shape, never about local behaviour.
 
 **Price.** `price_bucket` is ordinal. "Bucket 8 costs twice bucket 4" is not a
 valid statement; "bucket 8 converts better than bucket 4" is.

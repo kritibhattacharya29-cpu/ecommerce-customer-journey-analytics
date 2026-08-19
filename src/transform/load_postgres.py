@@ -18,7 +18,6 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import io
 import time
 
 import psycopg2
@@ -59,8 +58,6 @@ TABLES = {
     ),
 }
 
-CHUNK = 250_000
-
 
 def pg_connect():
     return psycopg2.connect(
@@ -70,37 +67,160 @@ def pg_connect():
     )
 
 
+def assert_no_hugeint(duck, duck_table: str, cols: list[str]) -> None:
+    """Fail early and legibly on HUGEINT columns.
+
+    DuckDB's sum() over an integer column returns HUGEINT (int128) so it cannot
+    overflow. pandas has no int128 dtype, so such a column silently arrives as
+    float64, and `to_csv` then writes "0.0" where PostgreSQL expects "0" for an
+    INTEGER column.
+
+    The failure surfaces as `invalid input syntax for type integer: "0.0"` from
+    deep inside COPY, naming a row number rather than a cause. Checking the
+    declared types up front turns that into a message that says what to do.
+    """
+    types = {n: t for n, t, *_ in duck.execute(f"DESCRIBE {duck_table}").fetchall()}
+    offenders = [c for c in cols if "HUGEINT" in types.get(c, "").upper()]
+    if offenders:
+        raise SystemExit(
+            f"\n{duck_table}: HUGEINT column(s) {offenders} cannot round-trip "
+            f"through pandas.\n"
+            f"They arrive as float64 and COPY will reject them as '0.0'.\n"
+            f"Fix at the source: cast to ::BIGINT in the SQL that builds "
+            f"{duck_table}, not here."
+        )
+
+
+# Below this size, dropping and rebuilding indexes costs more than it saves.
+REBUILD_INDEXES_ABOVE = 1_000_000
+
+
+def _capture_and_drop_indexes(cur, pg_table: str) -> list[str]:
+    """Drop a table's indexes and unique/PK constraints, returning the DDL to
+    restore them.
+
+    Bulk loading into an indexed table makes PostgreSQL maintain every index
+    per row. On fct_session the primary-key index over a 64-char hash is 587 MB
+    of the 680 MB index total, and maintaining it dominates the load. Building
+    the same index once, in bulk, from already-loaded data is far cheaper than
+    inserting into it 4.9M times.
+
+    CHECK constraints are deliberately left in place: they cost almost nothing
+    per row and they are the point of having them -- a load that violates the
+    funnel invariants should fail, not be waved through for speed.
+    """
+    ddl: list[str] = []
+
+    cur.execute("""
+        SELECT c.conname, pg_get_constraintdef(c.oid)
+        FROM pg_constraint c
+        WHERE c.conrelid = %s::regclass AND c.contype IN ('p', 'u')
+    """, (pg_table,))
+    constraints = cur.fetchall()
+
+    cur.execute("""
+        SELECT i.indexrelid::regclass::text, pg_get_indexdef(i.indexrelid)
+        FROM pg_index i
+        LEFT JOIN pg_constraint c ON c.conindid = i.indexrelid
+        WHERE i.indrelid = %s::regclass AND c.conname IS NULL
+    """, (pg_table,))
+    indexes = cur.fetchall()
+
+    for name, definition in indexes:
+        ddl.append(definition)
+        cur.execute(f"DROP INDEX {name}")
+    for name, definition in constraints:
+        ddl.append(f"ALTER TABLE {pg_table} ADD CONSTRAINT {name} {definition}")
+        cur.execute(f"ALTER TABLE {pg_table} DROP CONSTRAINT {name}")
+
+    return ddl
+
+
 def copy_table(duck, pg, duck_table: str, pg_table: str, cols: list[str]) -> int:
     col_sql = ", ".join(cols)
+    assert_no_hugeint(duck, duck_table, cols)
     total = duck.execute(f"SELECT count(*) FROM {duck_table}").fetchone()[0]
     print(f"  {duck_table} -> {pg_table}  ({total:,} rows)")
 
-    with pg.cursor() as cur:
-        cur.execute(f"TRUNCATE {pg_table} CASCADE")
+    # Route the data through a CSV file written by DuckDB, rather than through
+    # pandas DataFrames. The intermediate file lands in COVEO_WORK_DIR (outside
+    # the repo, outside cloud sync) and is deleted afterwards.
+    #
+    # ---- how this was arrived at, including the wrong turn -----------------
+    #
+    # The first version paged with LIMIT/OFFSET and serialised via pandas:
+    # 518.5s for fct_session's 4.9M rows.
+    #
+    # Profiling attributed that to pandas -- to_csv 57.9%, DuckDB fetch 29.5%,
+    # PostgreSQL COPY only 12.5% -- so the obvious fix was to bypass pandas.
+    # Doing exactly that changed the total from 518.5s to 507.1s. Essentially
+    # nothing.
+    #
+    # The profile was wrong, and wrong in an instructive way: it copied into a
+    # TEMP table, which has no indexes. That made COPY look nearly free when on
+    # the real table it was doing the bulk of the work -- maintaining a 587 MB
+    # primary-key index over a 64-char hash, one row at a time, plus four
+    # secondary indexes.
+    #
+    # Measuring the real table instead gave the actual answer, and both changes
+    # together (native CSV export + drop/rebuild indexes around the load) took
+    # fct_session from 518.5s to 156.7s: 26.5s writing CSV, 58.9s copying,
+    # 41.2s rebuilding indexes in bulk.
+    #
+    # The lesson worth keeping: a benchmark that omits the indexes is not a
+    # benchmark of the load.
+    tmp_csv = config.INTERIM_DIR / f"_load_{duck_table}.csv"
+    tmp_csv.parent.mkdir(parents=True, exist_ok=True)
 
-        moved = 0
-        t0 = time.time()
-        while moved < total:
-            df = duck.execute(
-                f"SELECT {col_sql} FROM {duck_table} "
-                f"LIMIT {CHUNK} OFFSET {moved}"
-            ).df()
-            if df.empty:
-                break
+    t0 = time.time()
+    duck.execute(f"""
+        COPY (SELECT {col_sql} FROM {duck_table})
+        TO '{tmp_csv.as_posix()}'
+        (FORMAT CSV, HEADER FALSE, NULLSTR '\\N')
+    """)
+    t_write = time.time() - t0
 
-            buf = io.StringIO()
-            df.to_csv(buf, index=False, header=False, na_rep="\\N")
-            buf.seek(0)
-            cur.copy_expert(
-                f"COPY {pg_table} ({col_sql}) FROM STDIN WITH (FORMAT csv, NULL '\\N')",
-                buf,
-            )
-            moved += len(df)
-            pct = 100.0 * moved / total
-            print(f"    {moved:>10,} / {total:,}  ({pct:5.1f}%)", end="\r", flush=True)
+    rebuild = total > REBUILD_INDEXES_ABOVE
+    t_copy = t_index = 0.0
+    try:
+        with pg.cursor() as cur:
+            cur.execute(f"TRUNCATE {pg_table} CASCADE")
 
-        pg.commit()
-        print(f"    {moved:>10,} rows in {time.time() - t0:,.1f}s" + " " * 20)
+            index_ddl = _capture_and_drop_indexes(cur, pg_table) if rebuild else []
+
+            t1 = time.time()
+            with tmp_csv.open("r", encoding="utf-8", newline="") as fh:
+                cur.copy_expert(
+                    f"COPY {pg_table} ({col_sql}) "
+                    f"FROM STDIN WITH (FORMAT csv, NULL '\\N')",
+                    fh,
+                )
+            t_copy = time.time() - t1
+
+            t2 = time.time()
+            for statement in index_ddl:
+                cur.execute(statement)
+            t_index = time.time() - t2
+
+            pg.commit()
+            cur.execute(f"SELECT count(*) FROM {pg_table}")
+            moved = cur.fetchone()[0]
+    finally:
+        tmp_csv.unlink(missing_ok=True)
+
+    elapsed = time.time() - t0
+    detail = f"{t_write:,.1f}s csv + {t_copy:,.1f}s copy"
+    if rebuild:
+        detail += f" + {t_index:,.1f}s indexes"
+    print(f"    {moved:>10,} rows in {elapsed:,.1f}s "
+          f"({moved / elapsed if elapsed else 0:,.0f} rows/s; {detail})")
+
+    # A partial load is worse than a failed one: it looks like success.
+    if moved != total:
+        raise SystemExit(
+            f"{duck_table}: loaded {moved:,} rows but source has {total:,}. "
+            "Refusing to continue with a partial load."
+        )
     return moved
 
 
