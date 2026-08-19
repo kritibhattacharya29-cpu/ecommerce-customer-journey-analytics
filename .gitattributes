@@ -1,0 +1,11 @@
+# Normalise line endings so the repo is identical on Windows, macOS and Linux.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.pbix binary
+
+# Never diff or merge these -- and they should never be committed anyway.
+*.csv     binary
+*.parquet binary
+*.duckdb  binary
