@@ -1,8 +1,14 @@
 # E-commerce Customer Journey & Purchase Intent Analytics
 
+[![tests](https://github.com/kritibhattacharya29-cpu/ecommerce-customer-journey-analytics/actions/workflows/tests.yml/badge.svg)](https://github.com/kritibhattacharya29-cpu/ecommerce-customer-journey-analytics/actions/workflows/tests.yml)
+![python](https://img.shields.io/badge/python-3.10%20%7C%203.12-blue)
+![license](https://img.shields.io/badge/code%20licence-MIT-green)
+
 End-to-end analytics on **36 million real e-commerce events** from the Coveo
 SIGIR 2021 eCom Data Challenge — session reconstruction, funnel and search
 conversion analysis, and purchase-intent modelling.
+
+**Stack:** Python · DuckDB · PostgreSQL · SQL · pandas · scikit-learn · Git
 
 The dataset is genuine production telemetry from a live retailer, not a teaching
 table. Coveo document it as imperfect: events are *not stored in chronological

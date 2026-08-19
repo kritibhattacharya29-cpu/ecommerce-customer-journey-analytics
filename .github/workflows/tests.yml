@@ -1,0 +1,50 @@
+name: tests
+
+# The pipeline tests run entirely on synthetically generated data, so CI needs
+# no access to the Coveo dataset -- which Coveo's Terms & Conditions would not
+# permit anyway. That constraint is what makes this workflow possible at all.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install duckdb pandas pyarrow numpy python-dotenv scikit-learn
+
+      - name: End-to-end pipeline tests (synthetic fixtures)
+        env:
+          # Point at throwaway locations; the test overrides these per-run.
+          COVEO_RAW_DIR: /tmp/coveo-raw
+          COVEO_WORK_DIR: /tmp/coveo-work
+        run: python tests/test_pipeline.py
+
+      - name: Verify no dataset identifiers are committed
+        run: |
+          echo "Scanning tracked files for 64-char hashes..."
+          if git ls-files -z | xargs -0 grep -lE '\b[0-9a-f]{64}\b' 2>/dev/null; then
+            echo "FAIL: a tracked file contains dataset identifiers."
+            echo "Coveo's Terms & Conditions clause 5 forbids redistributing"
+            echo "the dataset or data contained therein."
+            exit 1
+          fi
+          echo "OK: no dataset identifiers in any tracked file."
