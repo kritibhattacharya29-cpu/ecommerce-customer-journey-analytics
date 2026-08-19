@@ -1,0 +1,32 @@
+# ---------------------------------------------------------------------------
+# Coveo SIGIR dataset -- NEVER COMMIT.
+# The Coveo Terms & Conditions (clause 5) prohibit distributing copies of the
+# dataset "and/or data contained therein" to any third party. That includes
+# samples, extracts, and derived row-level exports. See docs/DATA_ACCESS.md.
+# ---------------------------------------------------------------------------
+data/raw/
+data/interim/
+data/processed/
+*.csv
+*.parquet
+*.duckdb
+*.duckdb.wal
+*.zip
+
+# Environment
+.env
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+
+# Reports may embed row-level data -- opt in explicitly, never by default
+reports/figures/*.png
+!reports/figures/.gitkeep
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
