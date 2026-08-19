@@ -91,7 +91,7 @@ for the ML layer, keeping every analytical scan cheap.
 | **1 — Data engineering** | Raw ingest, data-quality assessment, session reconstruction, dimensional model | ✅ |
 | **2 — Customer journey** | Funnel (both definitions), cart abandonment, session depth, time-to-purchase | ✅ [report](reports/funnel_analysis.md) |
 | **3 — Search analytics** | Zero-result rate, CTR, position bias, click → purchase attribution | ✅ [report](reports/search_analysis.md) |
-| **4 — Product & commercial** | Category performance, price-bucket sensitivity, product affinity | 🚧 `fct_product_performance` built |
+| **4 — Product & commercial** | Catalog coverage, category performance, price sensitivity, demand concentration | ✅ [report](reports/product_analysis.md) |
 | **5 — Data science** | Purchase-intent classification, session-based recommendation | 🚧 |
 
 ---
@@ -128,6 +128,23 @@ confident, wrong answer.
 three — recoverable only because Coveo log the full impression set. Any
 relevance model trained on raw clicks would mostly learn to reproduce the
 existing ranker.
+
+**Missing catalog data is not missing at random.** 51% of SKUs have no category
+— which sounds fatal for category reporting. Crossing "has metadata" against
+"was ever viewed" shows they are almost the same variable:
+
+| | Never viewed | Viewed |
+|---|---|---|
+| **No category** | 27,910 | **0** |
+| **Has category** | 8 | 29,565 |
+
+Every SKU that was ever viewed has metadata, so view-based breakdowns are
+100% covered. The uncatalogued SKUs are almost purely cart *removals* and
+purchases with no view — the same cross-session carts the funnel analysis
+found. The practical consequence is specific rather than general: 10.1% of
+purchases sit on unpriced SKUs, so revenue-by-price omits a tenth of
+conversions, while category-by-views omits nothing. Dropping those rows instead
+of modelling them as `(unknown)` would have hidden the structure entirely.
 
 **Row-count reconciliation.** `python -m src.transform.reconcile` proves every
 dropped row is accounted for:

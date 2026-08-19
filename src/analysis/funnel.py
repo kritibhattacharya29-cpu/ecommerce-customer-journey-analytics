@@ -15,6 +15,8 @@ cross-session — something a single funnel number cannot express.
 """
 from __future__ import annotations
 
+import time
+
 from src import config
 from src.ingest.build_duckdb import connect
 from src.profiling.data_quality import Report, block, md_table, pct
@@ -283,7 +285,6 @@ def main() -> None:
     print("Building funnel analysis\n")
     for name, fn in SECTIONS:
         print(f"  {name:<22}", end="", flush=True)
-        import time
         t0 = time.time()
         fn(con, rep)
         print(f"{time.time() - t0:>7,.1f}s")
